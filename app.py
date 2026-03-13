@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-import datetime
-from datetime import date
+
+from datetime import date, datetime, timedelta, timezone
 import os
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from fastapi import FastAPI, HTTPException, Response, Cookie, Depends
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from passlib.context import CryptContext
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, CHAR, Date
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, CHAR, Date
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 import uvicorn
+from sqlalchemy.sql.functions import current_timestamp, func
 from starlette import status
 import jwt
 
@@ -33,10 +34,10 @@ class UserDB(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String)
-    date_joined = Column(DateTime)
-    date_left = Column(DateTime)
-    archived = Column(Boolean)
+    role = Column(String, server_default="user")
+    date_joined = Column(Date, nullable = False, server_default=func.current_date())
+    date_left = Column(Date)
+    archived = Column(Boolean, nullable = False, server_default=func.false())
 
 class ItemDB(Base):
     __tablename__ = "inventory"
@@ -49,21 +50,25 @@ class ItemDB(Base):
     assigned_to = Column(Integer, ForeignKey("users.id"))
     permissions = Column(CHAR(4))
     archived = Column(Boolean)
-    date_archived = Column(DateTime)
+    date_archived = Column(Date)
+
+class CategoryDB(Base):
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
 
 class Item(BaseModel):
     id: int
     display_name: str
-    serial_number: str
+    serial_number: Optional[str] = None
     date_created: date
     date_updated: date
     category_id: int
-    assigned_to: int
-    permissions = str
+    assigned_to: Optional[int] = None
+    permissions: str
     archived: bool
-    date_archived: date
-    class Config:
-        from_attributes = True
+    date_archived: Optional[date] = None
+    model_config = ConfigDict(from_attributes=True)
 
 hash_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -108,7 +113,7 @@ def register(user: UserCreate):
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database operation error")
+            detail=f"Database operation error {e}")
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -122,7 +127,7 @@ def create_access_token(user_id: str):
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
     # Token for 1h
-    expire = datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+    expire = datetime.now(timezone.utc) + timedelta(hours=1)
     to_encode = {"sub": user_id, "exp": expire}
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -180,10 +185,10 @@ def login(response: Response, user: UserLogin):
     finally:
         db.close()
 
-@app.get("/api/get_items", response_model=List[Item])
+@app.get("/api/get_items", response_model=Union[Item, List[Item]])
 def read_items(
         id: Optional[str] = None,
-        category: Optional[str] = "all",
+        category: Optional[str] = None,
         current_user: UserDB = Depends(get_current_user),
 ):
     db = SessionLocal()
@@ -191,12 +196,26 @@ def read_items(
         if id and not category:
             item = db.query(ItemDB).filter_by(id=id).first()
             return item
+        elif category and not id:
+            category_db = db.query(CategoryDB).filter_by(name = category).first()
+            items_in_category = db.query(ItemDB).filter_by(category_id=category_db.id).all()
+            return items_in_category
+        elif category == "all":
+            all_items = db.query(ItemDB).all()
+            return all_items
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bad Request"
+            )
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database operation error"
         )
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

@@ -19,9 +19,8 @@ create table users (
 	first_name varchar(50) not null,
 	last_name varchar(50) not null,
 	password_hash text not null,
-	role varchar(20) not null
-	constraint chk_role check (role in ('admin', 'moderator', 'user'))
-	default 'user',
+	role varchar(20) not null default 'user'
+	constraint chk_role check (role in ('admin', 'moderator', 'user')),
 	date_joined date not null default current_date,
 	date_left date,
 	archived boolean not null default false
