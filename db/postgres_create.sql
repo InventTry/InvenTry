@@ -15,9 +15,9 @@ create table attributes (
 
 create table users (
 	id serial primary key,
+    email varchar(70) not null unique,
 	first_name varchar(50) not null,
 	last_name varchar(50) not null,
-	email varchar(70) not null unique,
 	password_hash text not null,
 	role varchar(20) not null
 	constraint chk_role check (role in ('admin', 'moderator', 'user'))
@@ -32,11 +32,12 @@ create table inventory (
 	display_name VARCHAR(50) not null,
 	serial_number text unique,
 	date_created date not null default current_date,
+    date_updated date not null default current_date,
 	category_id integer not null references categories(id),
 	assigned_to integer references users(id),
+    permissions char(4) not null default 'rw--',
 	archived boolean not null default false,
-	date_archived date,
-	date_updated date not null default current_date
+	date_archived date
 );
 
 create table user_attribute_values (
