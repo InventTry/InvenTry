@@ -18,7 +18,11 @@
             (python.withPackages (ps: with ps; [
               flask
               pip
+
             ]))
+            
+            #my alternative packages
+            pkgs.nodejs_24
           ];
 
           shellHook = ''
