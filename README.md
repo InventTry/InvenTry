@@ -41,6 +41,5 @@ Yup I prefer this shit much more than python.
 
 ```
 npm install
-node app.py
 npm run dev
 ```
