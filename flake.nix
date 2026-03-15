@@ -17,6 +17,7 @@
           packages = [
             (python.withPackages (ps: with ps; [
               flask
+              pip
             ]))
           ];
 
