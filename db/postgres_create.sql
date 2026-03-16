@@ -34,9 +34,9 @@ create table inventory (
     date_updated date not null default current_date,
 	category_id integer not null references categories(id),
 	assigned_to integer references users(id),
-    permissions char(4) not null default 'rw--',
-	archived boolean not null default false,
-	date_archived date
+    archived boolean not null default false,
+	date_archived date,
+    permissions bit(4) not null default B'1100'
 );
 
 create table user_attribute_values (

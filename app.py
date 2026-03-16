@@ -3,17 +3,16 @@
 from datetime import date, datetime, timedelta, timezone
 import os
 from typing import Optional, List, Union
-
 from fastapi import FastAPI, HTTPException, Response, Cookie, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, ConfigDict
 from passlib.context import CryptContext
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, CHAR, Date
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, CHAR, Date, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 import uvicorn
-from sqlalchemy.sql.functions import current_timestamp, func
+from sqlalchemy.sql.functions import func
 from starlette import status
 import jwt
 
@@ -26,6 +25,13 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}/inventry"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Permission bit masks:
+# 1. Moderator Read 2. Moderator Write 3. User Read 4. User Write
+MOD_READ = text("B'1000'")
+MOD_WRITE = text("B'0100'")
+USR_READ = text("B'0010'")
+USR_WRITE = text("B'0001'")
 
 class UserDB(Base):
     __tablename__ = "users"
@@ -147,7 +153,7 @@ def get_current_user(access_token: str = Cookie(None)):
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
         db = SessionLocal()
-        user = db.query(UserDB).filter_by(email=user_id).first()
+        user = db.query(UserDB).filter_by(id=user_id).first()
         return user  # Return user id for further authentification
 
     except jwt.ExpiredSignatureError:
@@ -180,7 +186,7 @@ def login(response: Response, user: UserLogin):
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database operation error"
+            detail= f"Database operation error {e}"
         )
     finally:
         db.close()
@@ -193,26 +199,37 @@ def read_items(
 ):
     db = SessionLocal()
     try:
-        if id and not category:
-            item = db.query(ItemDB).filter_by(id=id).first()
-            return item
+        query = db.query(ItemDB)
+        if current_user.role == "admin":
+            pass
+        elif current_user.role == "moderator":
+            query = query.filter(ItemDB.permissions.op('&')(MOD_READ) != text("B'0000'"))
+        elif current_user.role == "user":
+            query = query.filter(ItemDB.permissions.op('&')(USR_READ) != text("B'0000'"))
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User corrupted, contact administrator"
+            )
+        if category == "all":
+            pass
+        elif id and not category:
+            query = query.filter_by(id=id).first()
         elif category and not id:
             category_db = db.query(CategoryDB).filter_by(name = category).first()
-            items_in_category = db.query(ItemDB).filter_by(category_id=category_db.id).all()
-            return items_in_category
-        elif category == "all":
-            all_items = db.query(ItemDB).all()
-            return all_items
+            query = query.filter_by(category_id=category_db.id).all()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Bad Request"
             )
+        return query
+
     except SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database operation error"
+            detail= f"Database operation error {e}"
         )
     finally:
         db.close()
