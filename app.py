@@ -154,6 +154,11 @@ def get_current_user(access_token: str = Cookie(None)):
             raise HTTPException(status_code=401, detail="Invalid token")
         db = SessionLocal()
         user = db.query(UserDB).filter_by(id=user_id).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials"
+            )
         return user  # Return user id for further authentification
 
     except jwt.ExpiredSignatureError:
@@ -166,7 +171,7 @@ def login(response: Response, user: UserLogin):
     db=SessionLocal()
     try:
         user_in_db = db.query(UserDB).filter_by(email=user.email).first()
-        if user_in_db or hash_context.verify(user.password, user_in_db.password_hash):
+        if user_in_db and hash_context.verify(user.password, user_in_db.password_hash):
             access_token = create_access_token(str(user_in_db.id))
             response.set_cookie(
                 key="access_token",
@@ -215,8 +220,18 @@ def read_items(
             pass
         elif id and not category:
             query = query.filter_by(id=id).first()
+            if query is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Item not found"
+                )
         elif category and not id:
             category_db = db.query(CategoryDB).filter_by(name = category).first()
+            if category_db is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Category not found"
+                )
             query = query.filter_by(category_id=category_db.id).all()
         else:
             raise HTTPException(
